@@ -8,3 +8,4 @@ project-*.json
 *.pth
 optuna_study.db
 venv/
+.env
