@@ -4,3 +4,4 @@
 /.ipynb_checkpoints
 /notebooks/.ipynb_checkpoints
 project-*.json
+venv/
