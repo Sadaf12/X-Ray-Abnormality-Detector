@@ -1,20 +1,39 @@
+import io
 import pandas as pd
 from PIL import Image
 from torch.utils.data import Dataset
 from sklearn.model_selection import train_test_split
+from google.cloud import storage
+
+
+def read_image_from_gcs(gcs_path, bucket_name):
+    """Read image directly from GCS without downloading."""
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(gcs_path)
+    img_bytes = blob.download_as_bytes()
+    return Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
 
 class ChestXrayDataset(Dataset):
-    def __init__(self, df, transform=None):
+    def __init__(self, df, transform=None, gcs_bucket=None):
         self.df = df.reset_index(drop=True)
         self.transform = transform
+        self.gcs_bucket = gcs_bucket  # if set, read from GCS
 
     def __len__(self):
         return len(self.df)
 
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
-        img = Image.open(row["image_path"]).convert("RGB")
+        
+        if self.gcs_bucket:
+            # Running on Vertex AI — read from GCS directly
+            img = read_image_from_gcs(row["image_path"], self.gcs_bucket)
+        else:
+            # Running locally — read from disk
+            img = Image.open(row["image_path"]).convert("RGB")
+        
         label = float(row["target"])
         if self.transform:
             img = self.transform(img)

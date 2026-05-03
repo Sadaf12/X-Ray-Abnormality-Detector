@@ -1,4 +1,6 @@
+import io
 import os
+import subprocess
 import torch
 import wandb
 import hydra
@@ -12,24 +14,23 @@ from src.models.model import XRayClassifier
 from src.training.evaluate import evaluate
 
 
-def pull_data_from_gcs(bucket_name, prefix, local_base="/app"):
-    """Pull data from GCS to local container."""
-    print(f"Pulling data from gs://{bucket_name}/{prefix}")
+def pull_csv_from_gcs(bucket_name, gcs_path, local_path):
+    """Pull only the CSV file from GCS — it's tiny."""
+    print(f"Pulling CSV from gs://{bucket_name}/{gcs_path}")
     client = storage.Client()
     bucket = client.bucket(bucket_name)
-    blobs = list(bucket.list_blobs(prefix=prefix))
     
-    if not blobs:
-        print(f"  WARNING: no files found at gs://{bucket_name}/{prefix}")
-        return
-
-    for blob in blobs:
-        local_path = os.path.join(local_base, blob.name)
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        blob.download_to_filename(local_path)
-        print(f"  Downloaded: {local_path}")
-    
-    print("Data pull complete.")
+    # Find the actual DVC-cached file via dvc pull for just the CSV
+    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    result = subprocess.run(
+        ["dvc", "pull", "data/processed/binary_labels.csv"],
+        capture_output=True, text=True
+    )
+    print(result.stdout)
+    if result.returncode != 0:
+        print("DVC pull error:", result.stderr)
+        raise RuntimeError("CSV pull failed")
+    print("CSV ready.")
 
 
 def train_one_epoch(model, loader, optimizer, criterion, device):
@@ -38,8 +39,7 @@ def train_one_epoch(model, loader, optimizer, criterion, device):
     for imgs, labels in loader:
         imgs, labels = imgs.to(device), labels.to(device)
         optimizer.zero_grad()
-        logits = model(imgs)
-        loss = criterion(logits, labels)
+        loss = criterion(model(imgs), labels)
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
@@ -51,13 +51,13 @@ def main(cfg: DictConfig):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    # Pull data from GCS into /app directory
-    bucket = os.environ.get("GCS_BUCKET", "mlops_xray_zh")
-    pull_data_from_gcs(bucket, prefix="data/processed/binary_labels.csv", local_base="/app")
-    pull_data_from_gcs(bucket, prefix="data/raw/nih_chest_xray/", local_base="/app")
-
-    # Change to /app so all relative paths work
     os.chdir("/app")
+
+    bucket = os.environ.get("GCS_BUCKET", "mlops_xray_zh")
+
+    # Pull only the CSV (9MB) — not the images
+    pull_csv_from_gcs(bucket, "data/processed/binary_labels.csv",
+                      "data/processed/binary_labels.csv")
 
     wandb.init(
         project=cfg.wandb.project,
@@ -66,31 +66,40 @@ def main(cfg: DictConfig):
         name=f"{cfg.model.name}_bs{cfg.training.batch_size}_lr{cfg.optimizer.lr}",
     )
 
-    # Data
     train_df, val_df, _ = make_splits(
         cfg.data.csv_path,
         cfg.data.val_size,
         cfg.data.test_size,
         cfg.data.random_state,
     )
+
+    # Smoke test mode
+    if os.environ.get("SMOKE_TEST") == "true":
+        print("SMOKE TEST MODE — 500 images, 2 epochs")
+        train_df = train_df.sample(500, random_state=42).reset_index(drop=True)
+        val_df = val_df.sample(100, random_state=42).reset_index(drop=True)
+        cfg.training.epochs = 2
+
     print(f"Train: {len(train_df)} | Val: {len(val_df)}")
 
+    # Pass gcs_bucket so dataset reads images directly from GCS
     train_loader = DataLoader(
-        ChestXrayDataset(train_df, transform=get_train_transform()),
+        ChestXrayDataset(train_df, transform=get_train_transform(),
+                         gcs_bucket=bucket),
         batch_size=cfg.training.batch_size,
         shuffle=True,
-        num_workers=cfg.training.num_workers,
-        pin_memory=cfg.training.pin_memory,
+        num_workers=2,   # keep low — GCS reads don't benefit from many workers
+        pin_memory=False,
     )
     val_loader = DataLoader(
-        ChestXrayDataset(val_df, transform=get_val_transform()),
+        ChestXrayDataset(val_df, transform=get_val_transform(),
+                         gcs_bucket=bucket),
         batch_size=cfg.training.batch_size * 2,
         shuffle=False,
-        num_workers=cfg.training.num_workers,
-        pin_memory=cfg.training.pin_memory,
+        num_workers=2,
+        pin_memory=False,
     )
 
-    # Model
     model = XRayClassifier(
         model_name=cfg.model.name,
         dropout=cfg.model.dropout,
@@ -108,7 +117,6 @@ def main(cfg: DictConfig):
         optimizer, T_max=cfg.scheduler.T_max
     )
 
-    # Training loop
     os.makedirs(cfg.paths.model_dir, exist_ok=True)
     checkpoint_path = os.path.join(cfg.paths.model_dir, cfg.paths.checkpoint_name)
     best_auc = 0.0
@@ -141,7 +149,7 @@ def main(cfg: DictConfig):
             torch.save(model.state_dict(), checkpoint_path)
             print(f"  ✓ New best AUC {best_auc:.4f} — checkpoint saved")
 
-    # Push model to GCS
+    # Upload model checkpoint to GCS
     print("Uploading model to GCS...")
     client = storage.Client()
     bucket_obj = client.bucket(bucket)
