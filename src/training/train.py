@@ -4,11 +4,28 @@ import wandb
 import hydra
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
+from google.cloud import storage
 
 from src.data.dataset import ChestXrayDataset, make_splits
 from src.data.transforms import get_train_transform, get_val_transform
 from src.models.model import XRayClassifier
 from src.training.evaluate import evaluate
+
+
+def pull_data_from_gcs(bucket_name, prefix="data/"):
+    """Pull data directory from GCS to local container."""
+    print(f"Pulling data from gs://{bucket_name}/{prefix}")
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blobs = bucket.list_blobs(prefix=prefix)
+    
+    for blob in blobs:
+        local_path = blob.name
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        blob.download_to_filename(local_path)
+        print(f"  Downloaded: {local_path}")
+    
+    print("Data pull complete.")
 
 
 def train_one_epoch(model, loader, optimizer, criterion, device):
@@ -30,6 +47,11 @@ def main(cfg: DictConfig):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
+    # Pull data from GCS
+    bucket = os.environ.get("GCS_BUCKET", "mlops_xray_zh")
+    pull_data_from_gcs(bucket, prefix="data/processed/binary_labels.csv")
+    pull_data_from_gcs(bucket, prefix="data/raw/nih_chest_xray/")
+
     wandb.init(
         project=cfg.wandb.project,
         entity=cfg.wandb.entity,
@@ -37,7 +59,7 @@ def main(cfg: DictConfig):
         name=f"{cfg.model.name}_bs{cfg.training.batch_size}_lr{cfg.optimizer.lr}",
     )
 
-    # --- Data ---
+    # Data
     train_df, val_df, _ = make_splits(
         cfg.data.csv_path,
         cfg.data.val_size,
@@ -61,7 +83,7 @@ def main(cfg: DictConfig):
         pin_memory=cfg.training.pin_memory,
     )
 
-    # --- Model ---
+    # Model
     model = XRayClassifier(
         model_name=cfg.model.name,
         dropout=cfg.model.dropout,
@@ -79,7 +101,7 @@ def main(cfg: DictConfig):
         optimizer, T_max=cfg.scheduler.T_max
     )
 
-    # --- Training loop ---
+    # Training loop
     os.makedirs(cfg.paths.model_dir, exist_ok=True)
     checkpoint_path = os.path.join(cfg.paths.model_dir, cfg.paths.checkpoint_name)
     best_auc = 0.0
@@ -97,23 +119,29 @@ def main(cfg: DictConfig):
         )
 
         wandb.log({
-            "epoch":            epoch + 1,
-            "train/loss":       train_loss,
-            "val/loss":         val_metrics["loss"],
-            "val/auc":          val_metrics["auc"],
-            "val/f1":           val_metrics["f1"],
-            "val/sensitivity":  val_metrics["sensitivity"],
-            "val/specificity":  val_metrics["specificity"],
-            "lr":               scheduler.get_last_lr()[0],
+            "epoch":           epoch + 1,
+            "train/loss":      train_loss,
+            "val/loss":        val_metrics["loss"],
+            "val/auc":         val_metrics["auc"],
+            "val/f1":          val_metrics["f1"],
+            "val/sensitivity": val_metrics["sensitivity"],
+            "val/specificity": val_metrics["specificity"],
+            "lr":              scheduler.get_last_lr()[0],
         })
 
         if val_metrics["auc"] > best_auc:
             best_auc = val_metrics["auc"]
             torch.save(model.state_dict(), checkpoint_path)
-            wandb.save(checkpoint_path)
             print(f"  ✓ New best AUC {best_auc:.4f} — checkpoint saved")
 
-    print(f"\nTraining complete. Best val AUC: {best_auc:.4f}")
+    # Push model to GCS
+    print("Uploading model to GCS...")
+    client = storage.Client()
+    bucket_obj = client.bucket(bucket)
+    blob = bucket_obj.blob(f"models/{cfg.paths.checkpoint_name}")
+    blob.upload_from_filename(checkpoint_path)
+    print(f"Model saved to gs://{bucket}/models/{cfg.paths.checkpoint_name}")
+
     wandb.finish()
 
 
