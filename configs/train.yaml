@@ -1,5 +1,5 @@
 data:
-  csv_path: data/processed/binary_labels.csv
+  csv_path: /app/data/processed/binary_labels.csv
   image_col: image_path
   label_col: target
   val_size: 0.1

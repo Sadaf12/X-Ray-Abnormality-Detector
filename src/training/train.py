@@ -12,15 +12,19 @@ from src.models.model import XRayClassifier
 from src.training.evaluate import evaluate
 
 
-def pull_data_from_gcs(bucket_name, prefix="data/"):
-    """Pull data directory from GCS to local container."""
+def pull_data_from_gcs(bucket_name, prefix, local_base="/app"):
+    """Pull data from GCS to local container."""
     print(f"Pulling data from gs://{bucket_name}/{prefix}")
     client = storage.Client()
     bucket = client.bucket(bucket_name)
-    blobs = bucket.list_blobs(prefix=prefix)
+    blobs = list(bucket.list_blobs(prefix=prefix))
     
+    if not blobs:
+        print(f"  WARNING: no files found at gs://{bucket_name}/{prefix}")
+        return
+
     for blob in blobs:
-        local_path = blob.name
+        local_path = os.path.join(local_base, blob.name)
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         blob.download_to_filename(local_path)
         print(f"  Downloaded: {local_path}")
@@ -47,10 +51,13 @@ def main(cfg: DictConfig):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    # Pull data from GCS
+    # Pull data from GCS into /app directory
     bucket = os.environ.get("GCS_BUCKET", "mlops_xray_zh")
-    pull_data_from_gcs(bucket, prefix="data/processed/binary_labels.csv")
-    pull_data_from_gcs(bucket, prefix="data/raw/nih_chest_xray/")
+    pull_data_from_gcs(bucket, prefix="data/processed/binary_labels.csv", local_base="/app")
+    pull_data_from_gcs(bucket, prefix="data/raw/nih_chest_xray/", local_base="/app")
+
+    # Change to /app so all relative paths work
+    os.chdir("/app")
 
     wandb.init(
         project=cfg.wandb.project,
