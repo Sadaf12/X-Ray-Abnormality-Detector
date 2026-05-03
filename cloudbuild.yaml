@@ -3,8 +3,8 @@ steps:
     args: [
       'build',
       '-f', 'docker/Dockerfile.train',
-      '-t', 'us-central1-docker.pkg.dev/project-a5834adc-8f24-44e6-8f1/xray-abnormality-detector/xray-train:latest',
+      '-t', 'europe-west4-docker.pkg.dev/project-a5834adc-8f24-44e6-8f1/xray-abnormality-detector-eu/xray-train:latest',
       '.'
     ]
 images:
-  - 'us-central1-docker.pkg.dev/project-a5834adc-8f24-44e6-8f1/xray-abnormality-detector/xray-train:latest'
+  - 'europe-west4-docker.pkg.dev/project-a5834adc-8f24-44e6-8f1/xray-abnormality-detector-eu/xray-train:latest'

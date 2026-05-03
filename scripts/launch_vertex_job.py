@@ -6,12 +6,16 @@ from google.cloud import aiplatform
 load_dotenv()
 
 PROJECT_ID = os.environ["PROJECT_ID"]
-REGION = "us-central1"
-IMAGE_URI = f"us-central1-docker.pkg.dev/{PROJECT_ID}/xray-abnormality-detector/xray-train:latest"
+REGION = "europe-west4"
+IMAGE_URI = f"europe-west4-docker.pkg.dev/{PROJECT_ID}/xray-abnormality-detector-eu/xray-train:latest"
 BUCKET = os.environ["GCS_BUCKET"]
 WANDB_API_KEY = os.environ["WANDB_API_KEY"]
 
-aiplatform.init(project=PROJECT_ID, location=REGION)
+aiplatform.init(
+    project=PROJECT_ID,
+    location=REGION,
+    staging_bucket=f"gs://{BUCKET}",
+)
 
 job = aiplatform.CustomContainerTrainingJob(
     display_name="xray-smoke-test",
