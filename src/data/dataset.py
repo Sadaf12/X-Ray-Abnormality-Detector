@@ -22,18 +22,20 @@ class ChestXrayDataset(Dataset):
         self.transform = transform
         self.data_bucket = data_bucket
 
+    def __len__(self):
+        return len(self.df)
+
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
         if self.data_bucket:
             img = read_image_from_gcs(row["image_path"], self.data_bucket)
         else:
-            # Running locally — read from disk
             img = Image.open(row["image_path"]).convert("RGB")
-
+        
         label = float(row["target"])
         if self.transform:
             img = self.transform(img)
-            
+        
         return img, label
 
 
