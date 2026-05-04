@@ -25,6 +25,7 @@ def pull_csv_from_gcs(bucket_name, local_path):
     print("CSV downloaded successfully.")
 
 
+
 def train_one_epoch(model, loader, optimizer, criterion, device):
     model.train()
     total_loss = 0.0
@@ -44,10 +45,10 @@ def main(cfg: DictConfig):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    bucket = os.environ.get("GCS_BUCKET", "mlops_xray_zh")
+    data_bucket = os.environ.get("DATA_BUCKET", "nih-xray-data")
 
     # Download only the CSV (9MB) — images stream directly from GCS
-    pull_csv_from_gcs(bucket, "/app/data/processed/binary_labels.csv")
+    pull_csv_from_gcs(data_bucket, "/app/data/processed/binary_labels.csv")
 
     wandb.init(
         project=cfg.wandb.project,
@@ -74,7 +75,7 @@ def main(cfg: DictConfig):
 
     train_loader = DataLoader(
         ChestXrayDataset(train_df, transform=get_train_transform(),
-                         gcs_bucket=bucket),
+                         data_bucket=data_bucket),
         batch_size=cfg.training.batch_size,
         shuffle=True,
         num_workers=2,
@@ -82,7 +83,7 @@ def main(cfg: DictConfig):
     )
     val_loader = DataLoader(
         ChestXrayDataset(val_df, transform=get_val_transform(),
-                         gcs_bucket=bucket),
+                         data_bucket=data_bucket),
         batch_size=cfg.training.batch_size * 2,
         shuffle=False,
         num_workers=2,
@@ -138,13 +139,13 @@ def main(cfg: DictConfig):
             torch.save(model.state_dict(), checkpoint_path)
             print(f"  ✓ New best AUC {best_auc:.4f} — checkpoint saved")
 
-    # Upload model to GCS
-    print("Uploading model checkpoint to GCS...")
+    # Upload model to bucket
+    print("Uploading model checkpoint to GCS bucket...")
     client = storage.Client()
-    bucket_obj = client.bucket(bucket)
+    bucket_obj = client.bucket(data_bucket)
     blob = bucket_obj.blob(f"models/{cfg.paths.checkpoint_name}")
     blob.upload_from_filename(checkpoint_path)
-    print(f"Model saved to gs://{bucket}/models/{cfg.paths.checkpoint_name}")
+    print(f"Model saved to gs://{data_bucket}/models/{cfg.paths.checkpoint_name}")
 
     wandb.finish()
 

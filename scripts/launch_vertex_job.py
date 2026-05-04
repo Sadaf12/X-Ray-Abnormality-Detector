@@ -8,13 +8,14 @@ load_dotenv()
 PROJECT_ID = os.environ["PROJECT_ID"]
 REGION = "europe-west4"
 IMAGE_URI = f"europe-west4-docker.pkg.dev/{PROJECT_ID}/xray-abnormality-detector-eu/xray-train:latest"
-BUCKET = os.environ["GCS_BUCKET"]
+DATA_BUCKET = os.environ["DATA_BUCKET"]           # data bucket — passed to container
+STAGING_BUCKET = os.environ["STAGING_BUCKET"]  # staging only — for Vertex AI
 WANDB_API_KEY = os.environ["WANDB_API_KEY"]
 
 aiplatform.init(
     project=PROJECT_ID,
     location=REGION,
-    staging_bucket=f"gs://{BUCKET}",
+    staging_bucket=f"gs://{STAGING_BUCKET}",  # staging bucket in europe-west4
 )
 
 job = aiplatform.CustomContainerTrainingJob(
@@ -26,7 +27,7 @@ job.run(
     machine_type="n1-standard-4",
     environment_variables={
         "WANDB_API_KEY": WANDB_API_KEY,
-        "GCS_BUCKET": BUCKET,
+        "DATA_BUCKET": DATA_BUCKET,            # container reads data from here
         "SMOKE_TEST": "true",
     },
     replica_count=1,
