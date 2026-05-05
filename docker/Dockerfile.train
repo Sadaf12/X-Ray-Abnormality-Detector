@@ -2,6 +2,16 @@ FROM pytorch/pytorch:2.3.1-cuda11.8-cudnn8-runtime
 
 WORKDIR /app
 
+# Install gsutil
+RUN apt-get update -y && \
+    apt-get install -y curl apt-transport-https ca-certificates gnupg && \
+    curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - && \
+    echo "deb https://packages.cloud.google.com/apt cloud-sdk main" \
+    | tee /etc/apt/sources.list.d/google-cloud-sdk.list && \
+    apt-get update -y && \
+    apt-get install -y google-cloud-cli && \
+    apt-get clean
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install dvc-gs
