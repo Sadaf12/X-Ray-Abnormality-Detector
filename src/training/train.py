@@ -175,14 +175,34 @@ def run_hparam_search(cfg, data_bucket, n_trials):
 
 @hydra.main(config_path="../../configs", config_name="train", version_base=None)
 def main(cfg: DictConfig):
+    print("=" * 50)
+    print("Container started successfully")
+    print(f"Python version: {os.sys.version}")
+    print("=" * 50)
+    
     os.chdir("/app")
     device      = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     data_bucket = os.environ.get("DATA_BUCKET", "nih-xray-data")
     run_mode    = os.environ.get("RUN_MODE", "train")
 
-    print(f"Using device: {device}")
+    print(f"Device: {device}")
+    print(f"Data bucket: {data_bucket}")
+    print(f"Run mode: {run_mode}")
+
+    # Check gsutil is available
+    import subprocess
+    result = subprocess.run(["which", "gsutil"], capture_output=True, text=True)
+    print(f"gsutil location: {result.stdout.strip()}")
+    if not result.stdout.strip():
+        print("ERROR: gsutil not found!")
+
+    print("Starting CSV download...")
     pull_csv_from_gcs(data_bucket, "/app/data/processed/binary_labels.csv")
+    print("CSV download complete.")
+
+    print("Starting image download...")
     download_images_from_gcs(data_bucket)
+    print("Image download complete.")
 
     # ── Hparam search mode ──────────────────────────────────────────────────
     if run_mode == "hparam":
