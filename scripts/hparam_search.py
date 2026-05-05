@@ -1,3 +1,7 @@
+# This script launches training on Vertex AI.
+# Use this for production runs or when VM is not available.
+# For local VM training, run src/training/train.py directly.
+
 import os
 from dotenv import load_dotenv
 from google.cloud import aiplatform

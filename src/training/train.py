@@ -16,6 +16,11 @@ from src.training.evaluate import evaluate
 
 
 def pull_csv_from_gcs(bucket_name, local_path):
+    """Download CSV from GCS — skips if already exists."""
+    if os.path.exists(local_path):
+        print(f"CSV already exists at {local_path} — skipping download.")
+        return
+
     gcs_path = "data/processed/binary_labels.csv"
     print(f"Downloading gs://{bucket_name}/{gcs_path}")
     client = storage.Client()
@@ -25,18 +30,22 @@ def pull_csv_from_gcs(bucket_name, local_path):
     blob.download_to_filename(local_path)
     print("CSV downloaded.")
 
-def download_images_from_gcs(data_bucket):
-    """Copy all images from GCS to local disk once at job startup."""
-    print("Copying images from GCS to local disk...")
+def download_images_from_gcs(data_bucket, local_base=None):
+    """Copy images from GCS to local disk — skips if already downloaded."""
+    local_check = "/app/data/raw/nih_chest_xray"
+    
+    if os.path.exists(local_check) and len(os.listdir(local_check)) > 0:
+        print("Images already on local disk — skipping download.")
+        return
+    
+    print("Copying images from GCS to local disk (parallel)...")
     import subprocess
     result = subprocess.run([
         "gsutil", "-m", "cp", "-r",
         f"gs://{data_bucket}/data/raw",
         "/app/data/"
-    ], capture_output=True, text=True)
-    print(result.stdout)
+    ])
     if result.returncode != 0:
-        print("Error:", result.stderr)
         raise RuntimeError("Image download failed")
     print("Images ready at /app/data/raw/")
 
@@ -198,11 +207,9 @@ def main(cfg: DictConfig):
 
     print("Starting CSV download...")
     pull_csv_from_gcs(data_bucket, "/app/data/processed/binary_labels.csv")
-    print("CSV download complete.")
 
     print("Starting image download...")
-    download_images_from_gcs(data_bucket)
-    print("Image download complete.")
+    download_images_from_gcs(data_bucket, local_base=os.getcwd())
 
     # ── Hparam search mode ──────────────────────────────────────────────────
     if run_mode == "hparam":
