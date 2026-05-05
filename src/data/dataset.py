@@ -7,15 +7,6 @@ from sklearn.model_selection import train_test_split
 from google.cloud import storage
 
 
-def read_image_from_gcs(image_path, bucket_name):
-    """Read image directly from GCS without downloading to disk."""
-    client = storage.Client()
-    bucket = client.bucket(bucket_name)
-    blob = bucket.blob(image_path)
-    img_bytes = blob.download_as_bytes()
-    return Image.open(io.BytesIO(img_bytes)).convert("RGB")
-
-
 class ChestXrayDataset(Dataset):
     def __init__(self, df, transform=None, data_bucket=None):
         self.df = df.reset_index(drop=True)
@@ -27,15 +18,10 @@ class ChestXrayDataset(Dataset):
 
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
-        if self.data_bucket:
-            img = read_image_from_gcs(row["image_path"], self.data_bucket)
-        else:
-            img = Image.open(row["image_path"]).convert("RGB")
-        
+        img = Image.open(row["image_path"]).convert("RGB")
         label = float(row["target"])
         if self.transform:
             img = self.transform(img)
-        
         return img, label
 
 

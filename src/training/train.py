@@ -25,6 +25,20 @@ def pull_csv_from_gcs(bucket_name, local_path):
     blob.download_to_filename(local_path)
     print("CSV downloaded.")
 
+def download_images_from_gcs(data_bucket):
+    """Copy all images from GCS to local disk once at job startup."""
+    print("Copying images from GCS to local disk...")
+    import subprocess
+    result = subprocess.run([
+        "gsutil", "-m", "cp", "-r",
+        f"gs://{data_bucket}/data/raw",
+        "/app/data/"
+    ], capture_output=True, text=True)
+    print(result.stdout)
+    if result.returncode != 0:
+        print("Error:", result.stderr)
+        raise RuntimeError("Image download failed")
+    print("Images ready at /app/data/raw/")
 
 def train_one_epoch(model, loader, optimizer, criterion, device):
     model.train()
@@ -53,8 +67,8 @@ def build_loaders(train_df, val_df, batch_size, data_bucket):
     return train_loader, val_loader
 
 
-def build_model(dropout, lr, weight_decay, pos_weight, device):
-    model     = XRayClassifier("efficientnet_b0", dropout=dropout).to(device)
+def build_model(model_name, dropout, lr, weight_decay, pos_weight, device):
+    model     = XRayClassifier(model_name, dropout=dropout).to(device)
     criterion = torch.nn.BCEWithLogitsLoss(
         pos_weight=torch.tensor([pos_weight]).to(device)
     )
@@ -128,7 +142,7 @@ def run_hparam_search(cfg, data_bucket, n_trials):
             train_df, val_df, batch_size, data_bucket
         )
         model, criterion, optimizer = build_model(
-            dropout, lr, weight_decay, cfg.loss.pos_weight, device
+            cfg.model.name, dropout, lr, weight_decay, cfg.loss.pos_weight, device
         )
 
         best_auc = run_epochs(
@@ -168,6 +182,7 @@ def main(cfg: DictConfig):
 
     print(f"Using device: {device}")
     pull_csv_from_gcs(data_bucket, "/app/data/processed/binary_labels.csv")
+    download_images_from_gcs(data_bucket)
 
     # ── Hparam search mode ──────────────────────────────────────────────────
     if run_mode == "hparam":
@@ -199,7 +214,7 @@ def main(cfg: DictConfig):
         train_df, val_df, cfg.training.batch_size, data_bucket
     )
     model, criterion, optimizer = build_model(
-        cfg.model.dropout, cfg.optimizer.lr,
+        cfg.model.name, cfg.model.dropout, cfg.optimizer.lr,
         cfg.optimizer.weight_decay, cfg.loss.pos_weight, device
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(

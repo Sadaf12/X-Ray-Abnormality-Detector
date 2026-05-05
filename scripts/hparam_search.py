@@ -26,6 +26,7 @@ job.run(
     machine_type="n1-standard-4",
     accelerator_type="NVIDIA_TESLA_T4",
     accelerator_count=1,
+    boot_disk_size_gb=100,
     environment_variables={
         "WANDB_API_KEY": WANDB_API_KEY,
         "DATA_BUCKET":   DATA_BUCKET,
