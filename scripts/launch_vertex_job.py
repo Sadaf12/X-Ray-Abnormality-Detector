@@ -41,4 +41,4 @@ job.run(
     sync=False,
 )
 
-print("Smoke test complete.")
+print("Complete...")

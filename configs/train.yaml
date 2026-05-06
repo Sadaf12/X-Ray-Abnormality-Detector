@@ -9,7 +9,7 @@ data:
 model:
   name: efficientnet_b0
   pretrained: true
-  dropout: 0.3
+  dropout: 0.115
 
 training:
   epochs: 20
@@ -19,8 +19,8 @@ training:
 
 optimizer:
   name: adamw
-  lr: 1.0e-4
-  weight_decay: 1.0e-4
+  lr: 0.000691
+  weight_decay: 0.0000892
 
 scheduler:
   name: cosine
