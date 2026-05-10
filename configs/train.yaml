@@ -1,0 +1,38 @@
+data:
+  csv_path: /app/data/processed/binary_labels.csv
+  image_col: image_path
+  label_col: target
+  val_size: 0.1
+  test_size: 0.1
+  random_state: 42
+
+model:
+  name: efficientnet_b0
+  pretrained: true
+  dropout: 0.115
+
+training:
+  epochs: 20
+  batch_size: 32
+  num_workers: 4
+  pin_memory: true
+
+optimizer:
+  name: adamw
+  lr: 0.000691
+  weight_decay: 0.0000892
+
+scheduler:
+  name: cosine
+  T_max: 20
+
+loss:
+  pos_weight: 1.17
+
+wandb:
+  project: X-Ray-Abnormality-Detector(MLOPs)
+  entity: sadafambreen-zhaw
+
+paths:
+  model_dir: models/
+  checkpoint_name: best_model.pt
