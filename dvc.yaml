@@ -1,4 +1,11 @@
 stages:
+  download_data:
+    cmd: python scripts/download_kaggle_data.py
+    deps:
+      - scripts/download_kaggle_data.py
+    outs:
+      - data/raw/nih_chest_xray
+
   prepare_binary_labels:
     cmd: python scripts/prepare_binary_labels.py --raw-dir data/raw/nih_chest_xray --output-dir data/processed
     deps:

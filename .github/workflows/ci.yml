@@ -6,6 +6,12 @@ on:
 jobs:
   model-smoke-test:
     name: Model smoke test
+    # - installs dependencies
+    # - authenticates with Google Cloud
+    # - downloads trained model weights from GCS
+    # - reconstructs the model architecture
+    # - runs a dummy inference pass
+    # - verifies output validity and tensor shapes
     runs-on: ubuntu-latest
 
     permissions:
