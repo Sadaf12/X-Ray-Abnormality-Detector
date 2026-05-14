@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+
+jobs:
+  model-smoke-test:
+    name: Model smoke test
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    env:
+      DATA_BUCKET: ${{ secrets.DATA_BUCKET || 'nih-xray-data' }}
+      MODEL_GCS_PATH: models/best_model.pt
+      MODEL_NAME: efficientnet_b0
+      MODEL_DROPOUT: "0.115"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Install dependencies
+        run: pip install --no-cache-dir -r requirements.txt
+
+      - name: Download weights and run inference smoke test
+        run: python scripts/smoke_test_model.py
