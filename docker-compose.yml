@@ -1,0 +1,26 @@
+services: # orchestrates multiple containers/services together.
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api # Builds Backend image and Docker
+    image: xray-api
+    environment:
+      MODEL_LOCAL_PATH: /app/models/best_model.pt
+      MODEL_GCS_PATH: models/best_model.pt
+      DATA_BUCKET: nih-xray-data
+    volumes:
+      - ./models:/app/models
+    ports:
+      - "8000:8000"
+
+  ui:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ui # Builds Frontend image and Docker
+    image: xray-ui
+    environment:
+      XRAY_API_URL: http://api:8000/predict
+    depends_on:
+      - api
+    ports:
+      - "8501:8501"
