@@ -6,6 +6,9 @@ from torch.utils.data import Dataset
 from sklearn.model_selection import train_test_split
 from google.cloud import storage
 
+# loads chest X-ray images and their labels from a dataframe, opens each image from the file path, 
+# converts it to RGB, applies preprocessing/transforms (such as resizing and normalization), 
+# and returns the processed image together with its label. 
 
 class ChestXrayDataset(Dataset):
     def __init__(self, df, transform=None, data_bucket=None):
@@ -24,6 +27,7 @@ class ChestXrayDataset(Dataset):
             img = self.transform(img)
         return img, label
 
+# Splits the Data into 80% training, 10% val and 10% testing_df
 
 def make_splits(csv_path, val_size=0.1, test_size=0.1, random_state=42):
     df = pd.read_csv(csv_path)

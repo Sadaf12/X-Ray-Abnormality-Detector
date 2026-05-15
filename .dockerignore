@@ -1,0 +1,13 @@
+.git
+.dvc
+.venv_xray
+venv
+__pycache__
+*.pyc
+.env
+project-*.json
+data/raw
+data/processed
+models/*.pt
+models/*.pth
+notebooks/.ipynb_checkpoints

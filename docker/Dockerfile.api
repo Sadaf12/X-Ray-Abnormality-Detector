@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+ENV PYTHONPATH=/app \
+    MODEL_LOCAL_PATH=/app/models/best_model.pt \
+    MODEL_GCS_PATH=models/best_model.pt \
+    DATA_BUCKET=nih-xray-data
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY api/ ./api/
+COPY src/ ./src/
+COPY models/.gitkeep ./models/.gitkeep
+
+EXPOSE 8000
+
+CMD ["sh", "-c", "python api/download_model.py && uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

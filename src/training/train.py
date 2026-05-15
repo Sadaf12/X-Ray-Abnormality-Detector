@@ -14,6 +14,8 @@ from src.data.transforms import get_train_transform, get_val_transform
 from src.models.model import XRayClassifier
 from src.training.evaluate import evaluate
 
+# downloads the binary_labels.csv file from a Google Cloud Storage (GCS) bucket to the local machine, 
+# but only if the file does not already exist locally.
 
 def pull_csv_from_gcs(bucket_name, local_path):
     """Download CSV from GCS — skips if already exists."""
@@ -29,6 +31,9 @@ def pull_csv_from_gcs(bucket_name, local_path):
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
     blob.download_to_filename(local_path)
     print("CSV downloaded.")
+
+# copies the chest X-ray image dataset from Google Cloud Storage to the local disk using gsutil.
+# checks whether the images are already available locally to avoid unnecessary copying.
 
 def download_images_from_gcs(data_bucket, local_base=None):
     """Copy images from GCS to local disk — skips if already downloaded."""
@@ -49,6 +54,11 @@ def download_images_from_gcs(data_bucket, local_base=None):
         raise RuntimeError("Image download failed")
     print("Images ready at /app/data/raw/")
 
+# Tperforms one full training pass over the training dataset. 
+# It loads batches of images and labels, moves them to the GPU or CPU, computes predictions and loss, 
+# performs backpropagation, updates the model weights using the optimizer, 
+# and returns the average training loss for the epoch.
+
 def train_one_epoch(model, loader, optimizer, criterion, device):
     model.train()
     total_loss = 0.0
@@ -61,6 +71,9 @@ def train_one_epoch(model, loader, optimizer, criterion, device):
         total_loss += loss.item()
     return total_loss / len(loader)
 
+# creates PyTorch DataLoaders for the training and validation datasets. 
+# It applies training transforms (including augmentation) to the training data and validation transforms to the validation data, 
+# then prepares the data in batches for efficient loading during training and evaluation.
 
 def build_loaders(train_df, val_df, batch_size, data_bucket):
     train_loader = DataLoader(
@@ -75,6 +88,9 @@ def build_loaders(train_df, val_df, batch_size, data_bucket):
     )
     return train_loader, val_loader
 
+# creates the X-ray classification model, defines the loss function, and initializes the optimizer. 
+# builds the XRayClassifier with the specified architecture and dropout rate, moves it to the selected device (CPU or GPU), 
+# uses BCEWithLogitsLoss for binary classification with class weighting, and configures the AdamW optimizer with the chosen learning rate and weight decay.
 
 def build_model(model_name, dropout, lr, weight_decay, pos_weight, device):
     model     = XRayClassifier(model_name, dropout=dropout).to(device)
@@ -86,6 +102,10 @@ def build_model(model_name, dropout, lr, weight_decay, pos_weight, device):
     )
     return model, criterion, optimizer
 
+# manages the full training and validation process across multiple epochs. 
+# For each epoch, it trains the model on the training dataset, evaluates it on the validation dataset, 
+# updates the learning rate scheduler if used, logs performance metrics such as loss, AUC, F1-score, sensitivity, and specificity to Weights & Biases, 
+# and tracks the best validation AUC achieved. During hyperparameter search, it also reports results to Optuna and can stop unpromising trials early using pruning.
 
 def run_epochs(model, train_loader, val_loader, optimizer, criterion,
                scheduler, device, epochs, trial=None):
@@ -120,6 +140,9 @@ def run_epochs(model, train_loader, val_loader, optimizer, criterion,
 
     return best_auc
 
+# performs hyperparameter optimization using Optuna. 
+# first splits the dataset into training and validation sets and uses only 20% of the data and 5 epochs to speed up the search process. 
+# saves the best parameters and saves it to gcp
 
 def run_hparam_search(cfg, data_bucket, n_trials):
     """Bayesian hyperparameter search using Optuna."""
@@ -181,6 +204,13 @@ def run_hparam_search(cfg, data_bucket, n_trials):
     bucket.blob("hparam/best_params.json").upload_from_string(json.dumps(best))
     print(f"Saved to gs://{data_bucket}/hparam/best_params.json")
 
+# central entry point of the training pipeline. loads the training configuration using Hydra, 
+# sets up the environment and device (CPU/GPU), downloads the dataset from Google Cloud Storage if needed, 
+# and decides whether to run hyperparameter optimization or normal model training based on the RUN_MODE environment variable.
+
+# In training mode, it initializes Weights & Biases logging, creates the train and validation splits, builds the data loaders, model, optimizer, 
+# and learning rate scheduler, and then trains the model for multiple epochs while evaluating validation performance after each epoch. 
+# The best-performing model checkpoint is saved locally and uploaded to Google Cloud Storage at the end of training.
 
 @hydra.main(config_path="../../configs", config_name="train", version_base=None)
 def main(cfg: DictConfig):
