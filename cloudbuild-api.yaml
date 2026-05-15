@@ -2,7 +2,7 @@ substitutions:
   _REGION: europe-west6
   _REPOSITORY: xray-repo
   _SERVICE: xray-api
-  _IMAGE: europe-west6-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}
+  _IMAGE: europe-west6-docker.pkg.dev/project-a5834adc-8f24-44e6-8f1/${_REPOSITORY}/${_SERVICE}
 
 # Cloud Build builds Docker images, pushes to Artifact Registry, deploys Cloud Run.
 

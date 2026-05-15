@@ -6,6 +6,7 @@ on:
 jobs:
   model-smoke-test:
     name: Model smoke test
+    #   GitHub Actions tests that code works, model weights are downloadable, model can run inference.
     # - installs dependencies
     # - authenticates with Google Cloud
     # - downloads trained model weights from GCS
