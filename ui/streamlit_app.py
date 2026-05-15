@@ -29,7 +29,7 @@ with st.expander("Information"):
         whether the image is classified as normal or abnormal.
 
         This project is intended for educational and demonstration purposes only
-        and is not a medical diagnostic tool.
+        and is not a medical diagnostic tool...
         """
     )
 

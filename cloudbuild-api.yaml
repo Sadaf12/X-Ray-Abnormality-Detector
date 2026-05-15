@@ -1,0 +1,45 @@
+substitutions:
+  _REGION: europe-west6
+  _REPOSITORY: xray-repo
+  _SERVICE: xray-api
+  _IMAGE: europe-west6-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}
+
+# Cloud Build builds Docker images, pushes to Artifact Registry, deploys Cloud Run.
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - id: build-api
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - docker/Dockerfile.api
+      - -t
+      - ${_IMAGE}:$COMMIT_SHA
+      - .
+
+  - id: push-api
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_IMAGE}:$COMMIT_SHA
+
+  - id: deploy-api
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image
+      - ${_IMAGE}:$COMMIT_SHA
+      - --region
+      - ${_REGION}
+      - --platform
+      - managed
+      - --quiet
+
+images:
+  - ${_IMAGE}:$COMMIT_SHA

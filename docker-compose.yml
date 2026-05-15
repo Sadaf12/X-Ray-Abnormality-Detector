@@ -11,7 +11,7 @@ services: # orchestrates multiple containers/services together.
     volumes:
       - ./models:/app/models
     ports:
-      - "8000:8000"
+      - "8000:8080"
 
   ui:
     build:
@@ -19,8 +19,8 @@ services: # orchestrates multiple containers/services together.
       dockerfile: docker/Dockerfile.ui # Builds Frontend image and Docker
     image: xray-ui
     environment:
-      XRAY_API_URL: http://api:8000/predict
+      XRAY_API_URL: http://api:8080/predict
     depends_on:
       - api
     ports:
-      - "8501:8501"
+      - "8501:8080"
