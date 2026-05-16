@@ -5,7 +5,9 @@ import torch
 import wandb
 import optuna
 import hydra
+import numpy as np
 from omegaconf import DictConfig, OmegaConf
+from sklearn.metrics import accuracy_score, roc_auc_score, roc_curve
 from torch.utils.data import DataLoader
 from google.cloud import storage
 
@@ -102,6 +104,135 @@ def build_model(model_name, dropout, lr, weight_decay, pos_weight, device):
     )
     return model, criterion, optimizer
 
+# Does the same as in notebooks/evaluate_testset.ipynb just now included in the pipeline
+
+def evaluate_test_set(model, test_df, criterion, cfg, device, threshold=0.5):
+    test_loader = DataLoader(
+        ChestXrayDataset(test_df, transform=get_val_transform()),
+        batch_size=cfg.training.batch_size * 2,
+        shuffle=False,
+        num_workers=2,
+    )
+
+    model.eval()
+    all_probs, all_labels, losses = [], [], []
+
+    with torch.no_grad():
+        for imgs, labels in test_loader:
+            imgs = imgs.to(device)
+            labels = labels.float().to(device)
+
+            logits = model(imgs)
+            loss = criterion(logits, labels)
+            probs = torch.sigmoid(logits)
+
+            losses.append(loss.item())
+            all_probs.extend(probs.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+    all_probs = np.asarray(all_probs)
+    all_labels = np.asarray(all_labels).astype(int)
+    all_preds = (all_probs >= threshold).astype(int)
+
+    fpr, tpr, roc_thresholds = roc_curve(all_labels, all_probs)
+    threshold_idx = int(np.argmin(np.abs(roc_thresholds - threshold)))
+
+    metrics = {
+        "test_loss": float(np.mean(losses)),
+        "test_accuracy": float(accuracy_score(all_labels, all_preds)),
+        "test_auc": float(roc_auc_score(all_labels, all_probs)),
+        "threshold": float(roc_thresholds[threshold_idx]),
+        "threshold_label": threshold,
+        "tpr": float(tpr[threshold_idx]),
+        "fpr": float(fpr[threshold_idx]),
+        "best_test_accuracy": float(accuracy_score(all_labels, all_preds)),
+    }
+    roc_data = {
+        "fpr": fpr.tolist(),
+        "tpr": tpr.tolist(),
+        "thresholds": roc_thresholds.tolist(),
+    }
+
+    return metrics, roc_data
+
+
+def save_and_upload_evaluation_artifacts(
+    metrics, roc_data, train_df, val_df, test_df, cfg, data_bucket
+):
+    target_counts = (
+        train_df["target"].value_counts()
+        .add(val_df["target"].value_counts(), fill_value=0)
+        .add(test_df["target"].value_counts(), fill_value=0)
+        .sort_index()
+    )
+    total_size = int(len(train_df) + len(val_df) + len(test_df))
+    target_distribution = {
+        str(int(target)): float(count / total_size)
+        for target, count in target_counts.items()
+    }
+
+    metrics_payload = {
+        "training_data": int(len(train_df)),
+        "validation_data": int(len(val_df)),
+        "test_data": int(len(test_df)),
+        "total_data": total_size,
+        "target_distribution": target_distribution,
+        **metrics,
+    }
+
+    evaluation_dir = os.path.join(cfg.paths.model_dir, "evaluation")
+    os.makedirs(evaluation_dir, exist_ok=True)
+    metrics_path = os.path.join(evaluation_dir, "test_metrics.json")
+    roc_path = os.path.join(evaluation_dir, "roc_curve.json")
+
+    with open(metrics_path, "w", encoding="utf-8") as f:
+        json.dump(metrics_payload, f, indent=2)
+    with open(roc_path, "w", encoding="utf-8") as f:
+        json.dump(roc_data, f, indent=2)
+
+    client = storage.Client()
+    bucket = client.bucket(data_bucket)
+    bucket.blob("models/evaluation/test_metrics.json").upload_from_filename(metrics_path)
+    bucket.blob("models/evaluation/roc_curve.json").upload_from_filename(roc_path)
+
+    print(f"Evaluation metrics saved to gs://{data_bucket}/models/evaluation/test_metrics.json")
+    print(f"ROC curve data saved to gs://{data_bucket}/models/evaluation/roc_curve.json")
+
+    return metrics_payload
+
+
+def run_test_evaluation(cfg, data_bucket, device, checkpoint_path=None):
+    checkpoint_path = checkpoint_path or os.path.join(
+        cfg.paths.model_dir, cfg.paths.checkpoint_name
+    )
+
+    if not os.path.exists(checkpoint_path):
+        raise FileNotFoundError(
+            f"Model checkpoint not found at {checkpoint_path}. "
+            "Train first or download the checkpoint before evaluation."
+        )
+
+    train_df, val_df, test_df = make_splits(
+        cfg.data.csv_path, cfg.data.val_size,
+        cfg.data.test_size, cfg.data.random_state,
+    )
+    model, criterion, _ = build_model(
+        cfg.model.name, cfg.model.dropout, cfg.optimizer.lr,
+        cfg.optimizer.weight_decay, cfg.loss.pos_weight, device
+    )
+    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+
+    print("Evaluating model on held-out test set...")
+    test_metrics, roc_data = evaluate_test_set(
+        model, test_df, criterion, cfg, device, threshold=0.5
+    )
+    evaluation_payload = save_and_upload_evaluation_artifacts(
+        test_metrics, roc_data, train_df, val_df, test_df, cfg, data_bucket
+    )
+    print(f"Test evaluation: {json.dumps(evaluation_payload, indent=2)}")
+
+    return evaluation_payload
+
 # manages the full training and validation process across multiple epochs. 
 # For each epoch, it trains the model on the training dataset, evaluates it on the validation dataset, 
 # updates the learning rate scheduler if used, logs performance metrics such as loss, AUC, F1-score, sensitivity, and specificity to Weights & Biases, 
@@ -148,7 +279,7 @@ def run_hparam_search(cfg, data_bucket, n_trials):
     """Bayesian hyperparameter search using Optuna."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    train_df, val_df, _ = make_splits(
+    train_df, val_df, test_df = make_splits(
         cfg.data.csv_path, cfg.data.val_size,
         cfg.data.test_size, cfg.data.random_state,
     )
@@ -228,6 +359,15 @@ def main(cfg: DictConfig):
     print(f"Data bucket: {data_bucket}")
     print(f"Run mode: {run_mode}")
 
+    # Evaluation mode uses an existing local checkpoint and local test data.
+    if run_mode == "evaluate":
+        checkpoint_path = os.environ.get(
+            "MODEL_LOCAL_PATH",
+            os.path.join(cfg.paths.model_dir, cfg.paths.checkpoint_name),
+        )
+        run_test_evaluation(cfg, data_bucket, device, checkpoint_path)
+        return
+
     # Check gsutil is available
     import subprocess
     result = subprocess.run(["which", "gsutil"], capture_output=True, text=True)
@@ -254,7 +394,7 @@ def main(cfg: DictConfig):
         name=f"{cfg.model.name}_bs{cfg.training.batch_size}_lr{cfg.optimizer.lr}",
     )
 
-    train_df, val_df, _ = make_splits(
+    train_df, val_df, test_df = make_splits(
         cfg.data.csv_path, cfg.data.val_size,
         cfg.data.test_size, cfg.data.random_state,
     )
@@ -313,6 +453,25 @@ def main(cfg: DictConfig):
     bucket = client.bucket(data_bucket)
     bucket.blob(f"models/{cfg.paths.checkpoint_name}").upload_from_filename(checkpoint_path)
     print(f"Model saved to gs://{data_bucket}/models/{cfg.paths.checkpoint_name}")
+
+    evaluation_payload = run_test_evaluation(
+        cfg, data_bucket, device, checkpoint_path
+    )
+    test_metrics = {
+        "test_loss": evaluation_payload["test_loss"],
+        "test_accuracy": evaluation_payload["test_accuracy"],
+        "test_auc": evaluation_payload["test_auc"],
+        "tpr": evaluation_payload["tpr"],
+        "fpr": evaluation_payload["fpr"],
+    }
+    wandb.log({
+        "test/loss": test_metrics["test_loss"],
+        "test/accuracy": test_metrics["test_accuracy"],
+        "test/auc": test_metrics["test_auc"],
+        "test/tpr_at_50pct": test_metrics["tpr"],
+        "test/fpr_at_50pct": test_metrics["fpr"],
+    })
+    print(f"Test evaluation: {json.dumps(evaluation_payload, indent=2)}")
 
     wandb.finish()
 

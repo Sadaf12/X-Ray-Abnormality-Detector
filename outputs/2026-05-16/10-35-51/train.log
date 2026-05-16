@@ -1,0 +1,4 @@
+[2026-05-16 10:35:52,095][timm.models._builder][INFO] - Loading pretrained weights from Hugging Face hub (timm/efficientnet_b0.ra_in1k)
+[2026-05-16 10:35:52,540][httpx][INFO] - HTTP Request: HEAD https://huggingface.co/timm/efficientnet_b0.ra_in1k/resolve/main/model.safetensors "HTTP/1.1 302 Found"
+[2026-05-16 10:35:52,723][httpx][INFO] - HTTP Request: GET https://huggingface.co/api/models/timm/efficientnet_b0.ra_in1k/xet-read-token/1b5383e5f79cc0f7fc067e372f8f26a5fa73f26a "HTTP/1.1 200 OK"
+[2026-05-16 10:35:54,126][timm.models._hub][INFO] - [timm/efficientnet_b0.ra_in1k] Safe alternative available for 'pytorch_model.bin' (as 'model.safetensors'). Loading weights using safetensors.

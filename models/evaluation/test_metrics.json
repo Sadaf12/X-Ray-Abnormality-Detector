@@ -1,0 +1,18 @@
+{
+  "training_data": 89696,
+  "validation_data": 11212,
+  "test_data": 11212,
+  "total_data": 112120,
+  "target_distribution": {
+    "0": 0.5383606849803781,
+    "1": 0.46163931501962185
+  },
+  "test_loss": 0.6170361638069153,
+  "test_accuracy": 0.7221726721369961,
+  "test_auc": 0.7836486682685955,
+  "threshold": 0.49959930777549744,
+  "threshold_label": 0.5,
+  "tpr": 0.6810278207109737,
+  "fpr": 0.24271040424121934,
+  "best_test_accuracy": 0.7221726721369961
+}
