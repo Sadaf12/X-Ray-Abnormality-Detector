@@ -335,62 +335,25 @@ def run_hparam_search(cfg, data_bucket, n_trials):
     bucket.blob("hparam/best_params.json").upload_from_string(json.dumps(best))
     print(f"Saved to gs://{data_bucket}/hparam/best_params.json")
 
-# central entry point of the training pipeline. loads the training configuration using Hydra, 
-# sets up the environment and device (CPU/GPU), downloads the dataset from Google Cloud Storage if needed, 
-# and decides whether to run hyperparameter optimization or normal model training based on the RUN_MODE environment variable.
+    return best
 
-# In training mode, it initializes Weights & Biases logging, creates the train and validation splits, builds the data loaders, model, optimizer, 
-# and learning rate scheduler, and then trains the model for multiple epochs while evaluating validation performance after each epoch. 
-# The best-performing model checkpoint is saved locally and uploaded to Google Cloud Storage at the end of training.
 
-@hydra.main(config_path="../../configs", config_name="train", version_base=None)
-def main(cfg: DictConfig):
-    print("=" * 50)
-    print("Container started successfully")
-    print(f"Python version: {os.sys.version}")
-    print("=" * 50)
-    
-    os.chdir("/app")
-    device      = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    data_bucket = os.environ.get("DATA_BUCKET", "nih-xray-data")
-    run_mode    = os.environ.get("RUN_MODE", "train")
+def apply_best_params_to_cfg(cfg, best):
+    """Apply Optuna's best params to the Hydra config used for full training."""
+    params = best["best_params"]
+    cfg.optimizer.lr = params["lr"]
+    cfg.model.dropout = params["dropout"]
+    cfg.optimizer.weight_decay = params["weight_decay"]
+    cfg.training.batch_size = params["batch_size"]
 
-    print(f"Device: {device}")
-    print(f"Data bucket: {data_bucket}")
-    print(f"Run mode: {run_mode}")
+    print("Applied best hyperparameters to full training config:")
+    print(json.dumps(params, indent=2))
 
-    # Evaluation mode uses an existing local checkpoint and local test data.
-    if run_mode == "evaluate":
-        checkpoint_path = os.environ.get(
-            "MODEL_LOCAL_PATH",
-            os.path.join(cfg.paths.model_dir, cfg.paths.checkpoint_name),
-        )
-        run_test_evaluation(cfg, data_bucket, device, checkpoint_path)
-        return
 
-    # Check gsutil is available
-    import subprocess
-    result = subprocess.run(["which", "gsutil"], capture_output=True, text=True)
-    print(f"gsutil location: {result.stdout.strip()}")
-    if not result.stdout.strip():
-        print("ERROR: gsutil not found!")
-
-    print("Starting CSV download...")
-    pull_csv_from_gcs(data_bucket, "/app/data/processed/binary_labels.csv")
-
-    print("Starting image download...")
-    download_images_from_gcs(data_bucket, local_base=os.getcwd())
-
-    # ── Hparam search mode ──────────────────────────────────────────────────
-    if run_mode == "hparam":
-        n_trials = int(os.environ.get("N_TRIALS", "10"))
-        run_hparam_search(cfg, data_bucket, n_trials)
-        return
-
-    # ── Training mode ───────────────────────────────────────────────────────
+def run_full_training(cfg, data_bucket, device):
     wandb.init(
         project=cfg.wandb.project, entity=cfg.wandb.entity,
-        config=dict(cfg),
+        config=OmegaConf.to_container(cfg, resolve=True),
         name=f"{cfg.model.name}_bs{cfg.training.batch_size}_lr{cfg.optimizer.lr}",
     )
 
@@ -474,6 +437,69 @@ def main(cfg: DictConfig):
     print(f"Test evaluation: {json.dumps(evaluation_payload, indent=2)}")
 
     wandb.finish()
+
+# central entry point of the training pipeline. loads the training configuration using Hydra, 
+# sets up the environment and device (CPU/GPU), downloads the dataset from Google Cloud Storage if needed, 
+# and decides whether to run hyperparameter optimization or normal model training based on the RUN_MODE environment variable.
+
+# In training mode, it initializes Weights & Biases logging, creates the train and validation splits, builds the data loaders, model, optimizer, 
+# and learning rate scheduler, and then trains the model for multiple epochs while evaluating validation performance after each epoch. 
+# The best-performing model checkpoint is saved locally and uploaded to Google Cloud Storage at the end of training.
+
+@hydra.main(config_path="../../configs", config_name="train", version_base=None)
+def main(cfg: DictConfig):
+    print("=" * 50)
+    print("Container started successfully")
+    print(f"Python version: {os.sys.version}")
+    print("=" * 50)
+    
+    os.chdir("/app")
+    device      = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    data_bucket = os.environ.get("DATA_BUCKET", "nih-xray-data")
+    run_mode    = os.environ.get("RUN_MODE", "train")
+
+    print(f"Device: {device}")
+    print(f"Data bucket: {data_bucket}")
+    print(f"Run mode: {run_mode}")
+
+    # Evaluation mode uses an existing local checkpoint and local test data.
+    if run_mode == "evaluate":
+        checkpoint_path = os.environ.get(
+            "MODEL_LOCAL_PATH",
+            os.path.join(cfg.paths.model_dir, cfg.paths.checkpoint_name),
+        )
+        run_test_evaluation(cfg, data_bucket, device, checkpoint_path)
+        return
+
+    # Check gsutil is available
+    import subprocess
+    result = subprocess.run(["which", "gsutil"], capture_output=True, text=True)
+    print(f"gsutil location: {result.stdout.strip()}")
+    if not result.stdout.strip():
+        print("ERROR: gsutil not found!")
+
+    print("Starting CSV download...")
+    pull_csv_from_gcs(data_bucket, "/app/data/processed/binary_labels.csv")
+
+    print("Starting image download...")
+    download_images_from_gcs(data_bucket, local_base=os.getcwd())
+
+    # ── Hparam search mode ──────────────────────────────────────────────────
+    if run_mode == "hparam":
+        n_trials = int(os.environ.get("N_TRIALS", "10"))
+        run_hparam_search(cfg, data_bucket, n_trials)
+        return
+
+    # ── End-to-end pipeline mode ────────────────────────────────────────────
+    if run_mode == "pipeline":
+        n_trials = int(os.environ.get("N_TRIALS", "10"))
+        best = run_hparam_search(cfg, data_bucket, n_trials)
+        apply_best_params_to_cfg(cfg, best)
+        run_full_training(cfg, data_bucket, device)
+        return
+
+    # ── Training mode ───────────────────────────────────────────────────────
+    run_full_training(cfg, data_bucket, device)
 
 
 if __name__ == "__main__":

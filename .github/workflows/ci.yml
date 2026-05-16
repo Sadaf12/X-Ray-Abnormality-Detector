@@ -2,8 +2,36 @@ name: CI
 
 on:
   push:
+  pull_request:
+  workflow_dispatch:
 
 jobs:
+  static-checks:
+    name: Static checks
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile Python files
+        run: python -m compileall src scripts api ui
+
+      - name: Check required pipeline files exist
+        run: |
+          test -f cloudbuild.yaml
+          test -f docker/Dockerfile.train
+          test -f configs/train.yaml
+          test -f scripts/launch_pipeline_job.py
+
   model-smoke-test:
     name: Model smoke test
     #   GitHub Actions tests that code works, model weights are downloadable, model can run inference.
